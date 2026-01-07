@@ -490,7 +490,35 @@ def scrape_with_selenium(
 
         log(f"Headless: {usage_url}", verbose)
         driver.get(usage_url)
-        main = wait_for_text_in_main(driver, "Plan usage limits", timeout_s)
+
+        main = None
+        is_404 = False
+        start_time = time.time()
+        while time.time() - start_time < timeout_s:
+            try:
+                body = driver.find_element(By.TAG_NAME, "body")
+                body_text = body.text
+                if "Plan usage limits" in body_text:
+                    main = driver.find_element(By.TAG_NAME, "main")
+                    break
+                if "Page not found" in body_text or "finding this page isn’t one of them" in body_text:
+                    is_404 = True
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
+
+        if is_404:
+            return {
+                "status": "ok",
+                "payload": {
+                    "email": email_value,
+                    "current_session": None,
+                    "current_week_all_models": None,
+                    "status": "free_plan",
+                },
+            }
+
         if not main:
             # This is an actual error - logged in but usage page won't load
             logger.error(f"Failed to load usage page within {timeout_s}s timeout (logged in but page timeout)")
@@ -663,7 +691,37 @@ def run_cdp_mode(args):
             # Wait for usage content
             log("Waiting for usage content", args.verbose)
             try:
-                page.wait_for_selector("text=Plan usage limits", timeout=int(args.timeout * 1000))
+                # Custom wait loop to catch either usage limits or page not found
+                found_usage = False
+                found_404 = False
+                start_time = time.time()
+                while time.time() - start_time < args.timeout:
+                    # Use inner_text for more reliable visible text check
+                    inner_text = page.evaluate("() => document.body.innerText")
+                    if "Plan usage limits" in inner_text:
+                        found_usage = True
+                        break
+                    if "Page not found" in inner_text or "finding this page isn’t one of them" in inner_text:
+                        found_404 = True
+                        break
+                    page.wait_for_timeout(500)
+
+                if found_404:
+                    log("Page not found - likely free plan", args.verbose)
+                    payload = {
+                        "email": email,
+                        "current_session": None,
+                        "current_week_all_models": None,
+                        "status": "free_plan"
+                    }
+                    print(json.dumps(payload, ensure_ascii=True))
+                    # Log to DB as empty/free usage
+                    log_to_db(payload, args.verbose)
+                    return 0
+
+                if not found_usage:
+                    raise Exception(f"Timeout ({args.timeout}s) waiting for 'Plan usage limits'")
+
             except Exception as e:
                 logger.error(f"Usage page didn't load: {e}")
                 print("{}")
