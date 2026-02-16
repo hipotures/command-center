@@ -5,6 +5,7 @@ Uses disk cache to work offline and only updates when needed.
 """
 
 import json
+import sys
 import requests
 from pathlib import Path
 from typing import Optional, Dict
@@ -208,14 +209,14 @@ def get_model_pricing(model: str) -> Optional[ModelPricing]:
         return result
 
     # 2. Model not found - try to update pricing (might be new model)
-    print(f"Model '{model}' not found in pricing cache, attempting to update...")
+    print(f"Model '{model}' not found in pricing cache, attempting to update...", file=sys.stderr)
     pricing_data = load_pricing_dataset(force_update=True)
     result = find_in_dataset(pricing_data)
     if result:
         return result
 
     # 3. Still not found - no pricing available
-    print(f"Warning: No pricing found for model '{model}', costs will not be calculated")
+    print(f"Warning: No pricing found for model '{model}', costs will not be calculated", file=sys.stderr)
     return None
 
 
@@ -286,16 +287,16 @@ def update_pricing_cache() -> bool:
     Returns:
         True if update was successful, False otherwise
     """
-    print("Updating pricing cache from LiteLLM...")
+    print("Updating pricing cache from LiteLLM...", file=sys.stderr)
     remote_data = fetch_from_remote()
 
     if remote_data:
         global _pricing_cache
         _pricing_cache = remote_data
         save_to_disk(remote_data)
-        print(f"✓ Pricing cache updated successfully ({len(remote_data)} models)")
-        print(f"  Cache saved to: {PRICING_CACHE_FILE}")
+        print(f"✓ Pricing cache updated successfully ({len(remote_data)} models)", file=sys.stderr)
+        print(f"  Cache saved to: {PRICING_CACHE_FILE}", file=sys.stderr)
         return True
     else:
-        print("✗ Failed to update pricing cache (network error or timeout)")
+        print("✗ Failed to update pricing cache (network error or timeout)", file=sys.stderr)
         return False

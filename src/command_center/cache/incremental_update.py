@@ -4,6 +4,7 @@ Incremental update orchestration
 import os
 import sqlite3
 from rich.progress import Progress, BarColumn, TextColumn, TimeRemainingColumn
+from rich.console import Console
 
 from command_center.collectors.file_scanner import scan_jsonl_files
 from command_center.collectors.jsonl_parser import parse_jsonl_line
@@ -17,6 +18,8 @@ from command_center.utils.date_helpers import format_datetime_hour, parse_and_co
 from command_center.utils.project_metadata import (
     load_projects_json, save_projects_json, auto_discover_project
 )
+
+ERR_CONSOLE = Console(stderr=True)
 
 
 def perform_incremental_update(conn: sqlite3.Connection,
@@ -70,6 +73,7 @@ def perform_incremental_update(conn: sqlite3.Connection,
         BarColumn(),
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         TimeRemainingColumn(),
+        console=ERR_CONSOLE,
     ) as progress:
         task = progress.add_task("Processing", total=len(files_to_process))
 
@@ -86,14 +90,12 @@ def perform_incremental_update(conn: sqlite3.Connection,
     # Recompute aggregates for affected hours/years
     if affected_hours:
         if verbose:
-            from rich.console import Console
-            Console().print(f"[dim]Recomputing hourly aggregates for {len(affected_hours)} hours...[/dim]")
+            ERR_CONSOLE.print(f"[dim]Recomputing hourly aggregates for {len(affected_hours)} hours...[/dim]")
         recompute_hourly_aggregates(conn, affected_hours)
 
     if affected_years:
         if verbose:
-            from rich.console import Console
-            Console().print(f"[dim]Recomputing model aggregates for years: {sorted(affected_years)}[/dim]")
+            ERR_CONSOLE.print(f"[dim]Recomputing model aggregates for years: {sorted(affected_years)}[/dim]")
         for year in affected_years:
             recompute_model_aggregates(conn, year)
 
@@ -104,8 +106,7 @@ def perform_incremental_update(conn: sqlite3.Connection,
         save_projects_json(projects)
 
         if verbose:
-            from rich.console import Console
-            Console().print(f"[dim]Discovered {len(discovered_project_ids)} projects[/dim]")
+            ERR_CONSOLE.print(f"[dim]Discovered {len(discovered_project_ids)} projects[/dim]")
 
     return len(files_to_process)
 
