@@ -2,34 +2,22 @@
 
 ### Common Issues
 
-#### 1. No Activity Found for Year
+#### 1. No Activity Found for Date Range
 
 **Symptom:**
 ```
-No activity found for 2025
+No activity found for date range ...
 ```
-
-**Causes:**
-- No JSONL files for that year
-- Files exist but not in scanned directories
-- All entries have invalid timestamps
 
 **Diagnosis:**
 ```bash
-# Check for JSONL files
 find ~/.claude/projects -name "*.jsonl" -ls
-
-# Check database
 command-center --db-stats
 ```
 
-**Solution:**
+**Resolution:**
 ```bash
-# Force rescan
 command-center --force-rescan --verbose
-
-# Check specific year
-command-center --from 2024-01-01 --to 2024-12-31
 ```
 
 #### 2. Database Integrity Check Failed
@@ -37,191 +25,109 @@ command-center --from 2024-01-01 --to 2024-12-31
 **Symptom:**
 ```
 Database integrity check failed!
-Run with --rebuild-db to fix
 ```
 
-**Causes:**
-- Disk corruption
-- Interrupted write operation
-- File system errors
-
-**Solution:**
+**Resolution:**
 ```bash
-# Backup current database
 cp ~/.claude/db/command_center.db ~/command-center-backup.db
-
-# Rebuild from scratch
 command-center --rebuild-db --verbose
 ```
 
 #### 3. PNG Not Displaying in Terminal
 
-**Symptom:** No image shown, or text instead of image.
-
-**Causes:**
-- Terminal doesn't support inline images
-- Incorrect terminal detection
-- Image data corrupted
-
 **Diagnosis:**
 ```bash
-# Check terminal environment
-echo "TERM: $TERM"
-echo "TERM_PROGRAM: $TERM_PROGRAM"
-echo "KITTY_WINDOW_ID: $KITTY_WINDOW_ID"
+echo "TERM=$TERM"
+echo "TERM_PROGRAM=$TERM_PROGRAM"
 ```
 
-**Solution:**
-```bash
-# Use supported terminal (Kitty, iTerm2, WezTerm, etc.)
-# Or view saved PNG file
-open cc-usage-report-*.png
-```
+**Resolution:**
+- Use a supported terminal (Kitty, WezTerm, iTerm2, Ghostty, Konsole, VS Code).
+- Open saved file directly if inline protocols are unavailable.
 
-#### 4. Slow Performance on Incremental Update
+#### 4. Pricing Update Fails
 
-**Symptom:** Incremental update takes 30+ seconds.
-
-**Causes:**
-- Many modified files
-- Large files
-- Slow disk I/O
+**Symptom:**
+- `--update-pricing` fails with timeout/network error.
 
 **Diagnosis:**
-```bash
-# Run with verbose mode
-command-center --verbose
+- Check outbound connectivity to LiteLLM source.
+- Confirm local permissions for `~/.claude/db/pricing_cache.json`.
 
-# Check database size
-ls -lh ~/.claude/db/command_center.db
-```
+**Resolution:**
+- Retry later; core analytics continues with cached/stale pricing or `None` cost for unknown models.
 
-**Solution:**
-```bash
-# Rebuild database to optimize
-command-center --rebuild-db
-
-# Check disk health
-df -h
-```
-
-#### 5. Memory Error During First Run
+#### 5. Python Tests Fail at Collection (`ModuleNotFoundError: command_center`)
 
 **Symptom:**
 ```
-MemoryError: Unable to allocate...
+ModuleNotFoundError: No module named 'command_center'
 ```
 
-**Causes:**
-- Very large JSONL files (100+ MB)
-- Insufficient RAM
-- Memory leak (bug)
+**Cause:**
+- Current test invocation requires `src` on `PYTHONPATH`.
 
-**Solution:**
+**Resolution:**
 ```bash
-# Reduce batch size in config.py
-BATCH_INSERT_SIZE = 50  # Instead of 100
-
-# Run on machine with more RAM
-# Or split large JSONL files manually
+PYTHONPATH=src pytest
 ```
 
-### Debugging Techniques
+#### 6. Frontend Build or Lint Fails
 
-#### Enable Verbose Mode
+**Diagnosis:**
+```bash
+npm --prefix desktop/ui run lint
+npm --prefix desktop/ui run build
+```
+
+**Resolution:**
+- Fix reported TypeScript/ESLint issues before release.
+- Re-run both commands until clean.
+
+#### 7. Tauri Backend Check Fails
+
+**Diagnosis:**
+```bash
+cargo check --manifest-path desktop/src-tauri/Cargo.toml
+```
+
+**Resolution:**
+- Resolve Rust compile errors/warnings in `desktop/src-tauri`.
+
+### Operational Debugging Commands
 
 ```bash
+# CLI verbose run
 command-center --verbose
-```
 
-**Output:**
-- File processing progress bar
-- Entry counts per file
-- Aggregate recomputation status
-
-#### Check Database Statistics
-
-```bash
+# DB stats
 command-center --db-stats
-```
 
-**Output:**
-```
-┌──────────────────────┬───────────┐
-│ Metric               │ Value     │
-├──────────────────────┼───────────┤
-│ Total Entries        │ 500,234   │
-│ Tracked Files        │ 342       │
-│ Years Covered        │ 3         │
-│ Database Size        │ 52.3 MB   │
-└──────────────────────┴───────────┘
-```
+# Tauri API smoke
+PYTHONPATH=src python -m command_center.tauri_api dashboard --from 2025-01-01 --to 2025-12-31 --refresh 0 --granularity month
 
-#### Inspect Database Manually
-
-```bash
+# Manual DB inspection
 sqlite3 ~/.claude/db/command_center.db
 ```
 
+### SQL Checks
+
 ```sql
--- Check schema version
 SELECT * FROM schema_version;
-
--- Count entries by year
 SELECT year, COUNT(*) FROM message_entries GROUP BY year;
-
--- Check file tracking
-SELECT COUNT(*), SUM(entry_count) FROM file_tracks;
-
--- Find largest sessions
-SELECT session_id, COUNT(*) as msg_count
-FROM message_entries
-GROUP BY session_id
-ORDER BY msg_count DESC
-LIMIT 10;
+SELECT COUNT(*) FROM file_tracks;
+SELECT COUNT(*) FROM limit_events;
 ```
 
-#### Validate JSONL Files
+### Pre-Release Verification
 
-```python
-import json
-
-with open("session.jsonl") as f:
-    for i, line in enumerate(f, 1):
-        try:
-            entry = json.loads(line)
-            assert "message" in entry
-            assert "id" in entry["message"]
-            assert "requestId" in entry
-        except Exception as e:
-            print(f"Line {i}: {e}")
-```
-
-### Performance Profiling
-
-#### Time Individual Operations
+Run full local quality gate:
 
 ```bash
-# Time full run
-time command-center --rebuild-db --verbose
-
-# Time incremental update
-time command-center --verbose
-
-# Time query only
-time command-center --from 2025-01-01 --to 2025-12-31
-```
-
-#### Profile with cProfile
-
-```bash
-python -m cProfile -o profile.stats -m command_center --verbose
-```
-
-```python
-import pstats
-p = pstats.Stats('profile.stats')
-p.sort_stats('cumulative').print_stats(20)
+PYTHONPATH=src pytest
+npm --prefix desktop/ui run lint
+npm --prefix desktop/ui run build
+cargo check --manifest-path desktop/src-tauri/Cargo.toml
 ```
 
 ---

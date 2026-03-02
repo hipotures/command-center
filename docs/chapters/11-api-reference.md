@@ -117,7 +117,7 @@ stats = query_usage_stats(conn, "2025-01-01", "2025-12-31")
 print(f"Total messages: {stats.total_messages}")
 ```
 
-**Performance:** O(1) - queries pre-computed aggregates
+**Performance:** Range-dependent. Reads aggregate tables plus `message_entries` summaries for selected dates.
 
 #### `recompute_hourly_aggregates(conn: sqlite3.Connection, datetime_hours: set[str])`
 

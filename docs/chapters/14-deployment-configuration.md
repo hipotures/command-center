@@ -29,9 +29,6 @@ command-center --verbose
 - Isolated dependencies
 - Development-friendly
 
-**Disadvantages:**
-- Requires activation
-
 #### Method 3: Direct Execution
 
 ```bash
@@ -39,60 +36,36 @@ command-center --verbose
 uv run command-center --verbose
 ```
 
-**Advantages:**
-- No installation needed
-- One-off execution
+### Configuration Model
 
-**Disadvantages:**
-- Slower startup (uv resolves deps each time)
+#### Core runtime configuration
 
-### Configuration
+Core CLI behavior is configured in `src/command_center/config.py` (paths, batch size, canvas, fonts).
 
-**File:** `src/command_center/config.py`
+#### Environment variables (optional subsystems)
 
-#### Environment Variables
+The **core** `command-center` CLI does not require env vars for normal usage. Optional scripts and integrations do.
 
-**None.** All configuration is hardcoded in `config.py`.
-
-**Future Enhancement:** Support `~/.config/command-center/config.toml` for user overrides.
-
-#### Configurable Constants
-
-```python
-# Database location
-DB_PATH = os.path.join(HOME, ".claude", "db", "command_center.db")
-
-# Claude directories to scan
-CLAUDE_DIRS = [
-    os.path.join(HOME, ".claude"),
-    os.path.join(HOME, ".config", "claude")
-]
-
-# Batch insert size
-BATCH_INSERT_SIZE = 100
-
-# Canvas size
-CANVAS_WIDTH = 1500
-CANVAS_HEIGHT = 1400
-```
-
-**Customization:**
-
-```python
-# To change database location, edit config.py:
-DB_PATH = "/custom/path/to/database.db"
-
-# To add more Claude directories:
-CLAUDE_DIRS.append("/mnt/backup/.claude")
-```
+| Variable | Used By | Purpose |
+|----------|---------|---------|
+| `CC_USAGE_DB_PATH` | usage scripts | Override usage accounts DB path (`cc_usage.db`) |
+| `CC_USAGE_LOG_DB` | usage scripts | Enable/disable usage snapshot DB writes (`0` disables) |
+| `CC_USAGE_LOGGER` | usage scripts | Override path to `cc_usage_logger.py` |
+| `CDP_ENDPOINT` | `cc_usage_web.py` / Playwright flow | Browser CDP endpoint |
+| `TARGET_URL` | web usage scripts | Usage page URL |
+| `EMAIL_URL` | web usage scripts | Settings/email page URL |
+| `EMAIL_LABEL` | web usage scripts | Email field label selector |
+| `TIMEOUT_MS` | web usage scripts | Timeout override |
+| `OUTDIR` | web usage scripts | Output snapshot/log directory |
+| `CHROME_PROFILE` | `cc_usage_web.py` | Selenium profile directory |
+| `TELEGRAM_BOT_TOKEN` | `cc_usage_web.py` | Telegram bot token for alerts |
+| `TELEGRAM_CHAT_ID` | `cc_usage_web.py` | Telegram destination chat |
 
 ### CLI Usage
 
 ```bash
 command-center [OPTIONS]
 ```
-
-**Options:**
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
@@ -103,104 +76,64 @@ command-center [OPTIONS]
 | `--rebuild-db` | Boolean | False | Delete and rebuild database |
 | `--db-stats` | Boolean | False | Show database statistics and exit |
 | `--update-pricing` | Boolean | False | Update pricing cache from LiteLLM and exit |
-| `--list-projects` | Boolean | False | List all discovered projects with metadata |
-| `--update-project` | String[3] | - | Update project: PROJECT_ID "name" "description" |
+| `--list-projects` | Boolean | False | List discovered projects with metadata |
+| `--update-project` | String[3] | - | Update project metadata |
 
-**Examples:**
+### Testing & Operations Procedures
+
+Run these checks before merge/release:
 
 ```bash
-# Generate report for current year (verbose)
-command-center --verbose
+# Python tests (current repo layout expects src on path)
+PYTHONPATH=src pytest
 
-# Generate report for specific date range
-command-center --from 2024-01-01 --to 2024-12-31
+# CLI smoke test
+PYTHONPATH=src python -m command_center --db-stats
 
-# Force full rescan (useful if files were modified externally)
-command-center --force-rescan
+# Tauri API smoke test
+PYTHONPATH=src python -m command_center.tauri_api dashboard --from 2025-01-01 --to 2025-12-31 --refresh 0 --granularity month
 
-# Rebuild database from scratch
-command-center --rebuild-db --verbose
+# Frontend quality gates
+npm --prefix desktop/ui run lint
+npm --prefix desktop/ui run build
 
-# Show database statistics
-command-center --db-stats
-
-# Update pricing cache from LiteLLM
-command-center --update-pricing
-
-# List all discovered projects
-command-center --list-projects
-
-# Update project metadata
-command-center --update-project -home-user-dev-myproject "My Project" "Project description"
+# Rust/Tauri backend compile check
+cargo check --manifest-path desktop/src-tauri/Cargo.toml
 ```
 
-### System Requirements
+### Operational Runbook
 
-**Minimum:**
-- Python 3.10+
-- 100 MB disk space (database + dependencies)
-- 100 MB RAM
-- Linux/macOS/Windows
+1. Daily/regular use:
+```bash
+command-center --verbose
+```
 
-**Recommended:**
-- Python 3.11+
-- SSD (for faster database operations)
-- Terminal with inline image support (Kitty, iTerm2, WezTerm, etc.)
+2. Force full rescan after source log structure changes:
+```bash
+command-center --force-rescan --verbose
+```
+
+3. Full rebuild after schema/backfill-impacting changes:
+```bash
+command-center --rebuild-db --verbose
+```
+
+4. Manual pricing refresh:
+```bash
+command-center --update-pricing
+```
+
+### Release Checklist (Manual)
+
+No repository CI workflow is configured currently, so these checks are expected to run locally before merge/release.
+
+1. Run all checks from "Testing & Operations Procedures".
+2. Validate representative date ranges (small + large) and project-filtered dashboard output.
+3. Confirm docs are updated when data/network behavior changes.
+4. Verify no secrets/PII are introduced in logs or generated artifacts.
 
 ### Dependencies
 
-**Runtime Dependencies:**
-
-```
-Pillow>=10.0.0    # PNG generation
-rich>=13.0.0      # Terminal UI
-```
-
-**Build Dependencies:**
-
-```
-hatchling         # Build backend
-```
-
-**Locked Dependencies:** See `uv.lock` for exact versions.
-
-### Troubleshooting Installation
-
-#### Issue: `uv not found`
-
-**Solution:** Install uv package manager:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-#### Issue: `Pillow installation fails`
-
-**Cause:** Missing system libraries (libjpeg, libpng, etc.)
-
-**Solution (Debian/Ubuntu):**
-```bash
-sudo apt-get install libjpeg-dev libpng-dev
-uv tool install -e .
-```
-
-**Solution (macOS):**
-```bash
-brew install libjpeg libpng
-uv tool install -e .
-```
-
-#### Issue: `Database locked`
-
-**Cause:** Another process has the database open.
-
-**Solution:**
-```bash
-# Find process
-lsof ~/.claude/db/command_center.db
-
-# Kill process or wait for completion
-```
+Runtime dependencies are declared in `pyproject.toml`; exact lock versions in `uv.lock`.
 
 ---
-

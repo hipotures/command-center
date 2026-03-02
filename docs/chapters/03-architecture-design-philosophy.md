@@ -87,7 +87,7 @@ Separation of data transformation from React rendering:
 
 **Trade-offs:**
 - Limited concurrent write throughput (not needed for this use case)
-- No network access (not needed for this use case)
+- No external database service dependency (core analytics remains local-first)
 
 #### Why Pre-Aggregate Instead of Views?
 

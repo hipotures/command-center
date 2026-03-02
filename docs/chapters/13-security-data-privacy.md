@@ -2,107 +2,127 @@
 
 ### Threat Model
 
-**Assumptions:**
-- User has physical access to their own machine
-- User trusts local processes
-- No network adversaries (no network operations)
+Command Center is **local-first**, but there are optional networked features.
 
-**Out of Scope:**
-- Multi-user systems (not designed for shared environments)
-- Remote attackers (no network surface)
-- Hardware attacks (physical security)
+**Primary mode (core CLI + local DB):**
+- Single-user desktop workflow
+- Local filesystem + local SQLite only
+- No prompt/response content persistence in analytics DB
 
-### Data Privacy
+**Optional networked surfaces:**
+- Pricing refresh via LiteLLM dataset download (`--update-pricing` and fallback refresh in pricing helper)
+- Telegram notifications in `scripts/cc_usage_web.py` when bot env vars are configured
 
-#### What Data is Collected?
+**In scope:**
+- Local data exposure from weak filesystem permissions
+- Injection/misconfiguration in local developer tooling
+- Leaks through logs and optional integrations
 
-**Stored in Database:**
-- Session IDs (UUIDs)
-- Request IDs (UUIDs)
-- Message IDs (UUIDs)
-- Timestamps (UTC and local)
-- Model names
-- Token counts
-- Costs (USD)
-- Source file paths
+**Out of scope:**
+- Physical compromise of host OS
+- Compromised third-party services beyond basic transport/security controls
 
-**NOT Stored:**
-- Message content (prompts or responses)
-- User identifiers (names, emails)
-- Project names or paths (beyond JSONL locations)
-- API keys or credentials
+### Data Inventory
 
-#### Where is Data Stored?
+#### Core analytics database (`~/.claude/db/command_center.db`)
 
-**Database Location:** `~/.claude/db/command_center.db`
+**Stored:**
+- Session IDs, request IDs, message IDs
+- UTC + local timestamps
+- Model identifiers
+- Token and cost counters
+- Source file path
+- Derived project ID
+- Limit-event metadata (summary/reset fields)
 
-**File Permissions:** Default (user-only read/write on Unix-like systems)
+**Not stored in core analytics DB:**
+- Prompt text content
+- Model response text content
+- API keys/credentials
 
-**Encryption:** None (data is local, OS-level encryption recommended)
+#### Project metadata (`~/.claude/db/command-center-projects.json`)
 
-#### Data Retention
+**Stored:**
+- `project_id`
+- User-facing name/description
+- Reconstructed absolute path
+- Visibility flag
+- First/last seen timestamps
 
-**Retention Policy:** Indefinite (user controls deletion)
+#### Pricing cache (`~/.claude/db/pricing_cache.json`)
 
-**Deletion:**
+**Stored:**
+- Remote model pricing dataset downloaded from LiteLLM source
+
+#### Optional usage accounts database (`~/.claude/db/cc_usage.db`)
+
+Used by `scripts/cc_usage_logger.py` / `scripts/cc_usage_web.py`.
+
+**Stored:**
+- Account email
+- Usage percentages and raw usage strings
+- Reset times (local/UTC/epoch)
+- Raw payload snapshot (`raw_json`)
+
+This data includes personally identifiable account metadata and should be treated accordingly.
+
+### Network Behavior & Security Impact
+
+#### Outbound requests
+
+1. **Pricing update**
+- Destination: LiteLLM GitHub raw JSON URL
+- Trigger: `--update-pricing` or missing-model fallback refresh
+- Data sent: HTTP GET only (no local usage payload)
+
+2. **Telegram alerts (optional script path)**
+- Destination: `api.telegram.org`
+- Trigger: scraper errors/recovery events when env vars are set
+- Data sent: operational error messages (may include file names/paths)
+
+### Sensitive Data Handling Recommendations
+
+1. Restrict local file permissions:
 ```bash
-# Remove database
-rm ~/.claude/db/command_center.db
+chmod 700 ~/.claude ~/.claude/db
+chmod 600 ~/.claude/db/command_center.db
+chmod 600 ~/.claude/db/command-center-projects.json
+chmod 600 ~/.claude/db/pricing_cache.json
+chmod 600 ~/.claude/db/cc_usage.db
+```
 
-# Remove PNG outputs
+2. Avoid sharing raw DB files if `cc_usage.db` is enabled (contains account email).
+
+3. Sanitize operational logs before external forwarding (especially Telegram alerts).
+
+4. If strict offline mode is required:
+- Do not run `--update-pricing`
+- Disable optional web/Telegram scripts
+
+### Data Retention
+
+**Default policy:** Indefinite local retention.
+
+**Deletion commands:**
+```bash
+rm ~/.claude/db/command_center.db
+rm ~/.claude/db/command-center-projects.json
+rm ~/.claude/db/pricing_cache.json
+rm ~/.claude/db/cc_usage.db
 rm cc-usage-report-*.png
 ```
 
-**Selective Deletion:**
+**Selective deletion (analytics DB):**
 ```sql
--- Delete entries older than 2 years
 DELETE FROM message_entries WHERE year < 2023;
-
--- Vacuum to reclaim space
 VACUUM;
 ```
 
-### Security Best Practices
+### Multi-User & Shared Systems
 
-#### 1. File Permissions
-
-**Recommendation:** Restrict database to user-only access.
-
-```bash
-chmod 600 ~/.claude/db/command_center.db
-```
-
-#### 2. Backup Strategy
-
-**Recommendation:** Regular backups to encrypted storage.
-
-```bash
-# Backup database
-cp ~/.claude/db/command_center.db ~/backups/command-center-$(date +%Y%m%d).db
-
-# Encrypt backup
-gpg -e ~/backups/command-center-20251227.db
-```
-
-#### 3. Multi-User Systems
-
-**Warning:** Command Center is NOT designed for shared systems.
-
-**Mitigation:**
-- Use per-user installations
-- Restrict `~/.claude/` directory permissions
-- Consider separate user accounts
-
-#### 4. Cloud Sync
-
-**Warning:** Do NOT sync database to cloud storage (Dropbox, Google Drive, etc.).
-
-**Rationale:**
-- SQLite doesn't handle concurrent writes from multiple machines
-- Database corruption risk
-- Privacy exposure
-
-**Alternative:** Export statistics as JSON/CSV for sharing.
+Command Center is not designed as a multi-tenant service. On shared systems:
+- Use separate OS accounts per user
+- Restrict home directory access
+- Do not place DB files on shared/cloud-sync folders with concurrent writers
 
 ---
-

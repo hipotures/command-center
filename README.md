@@ -90,6 +90,49 @@ uv run command-center --verbose
 
 Data stored in `~/.claude/db/command_center.db` with hourly aggregation (local time).
 
+### Network & Data Behavior (Current)
+
+Command Center is **local-first**, but not strictly offline in all modes.
+
+**Core CLI (`command-center`) behavior:**
+- Reads local JSONL logs from `~/.claude/projects/` and `~/.config/claude/projects/`
+- Stores analytics in local SQLite: `~/.claude/db/command_center.db`
+- Does not send prompts/responses to external APIs
+
+**Outbound network can happen when:**
+- `--update-pricing` is used (or a missing model price triggers refresh) to download pricing JSON from LiteLLM GitHub source
+- `scripts/cc_usage_web.py` is used with Telegram env vars (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`)
+
+**Additional local data stores used by optional flows:**
+- `~/.claude/db/pricing_cache.json` (pricing cache)
+- `~/.claude/db/command-center-projects.json` (project metadata)
+- `~/.claude/db/cc_usage.db` (optional usage accounts logger; contains account email and usage snapshot fields)
+
+### Testing & Ops Procedures
+
+Run these checks before release:
+
+```bash
+# Python tests (current repo layout requires PYTHONPATH)
+PYTHONPATH=src pytest
+
+# CLI smoke check
+PYTHONPATH=src python -m command_center --db-stats
+
+# Frontend quality gates
+npm --prefix desktop/ui run lint
+npm --prefix desktop/ui run build
+
+# Tauri/Rust backend check
+cargo check --manifest-path desktop/src-tauri/Cargo.toml
+```
+
+If you use `command-center` via installed entrypoint and want API smoke tests:
+
+```bash
+PYTHONPATH=src python -m command_center.tauri_api dashboard --from 2025-01-01 --to 2025-12-31 --refresh 0 --granularity month
+```
+
 ### Output
 
 - PNG Image: `cc-usage-report-{date_from}_{date_to}.png`
